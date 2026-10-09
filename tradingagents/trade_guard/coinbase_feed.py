@@ -110,9 +110,12 @@ class CoinbaseBTCUSDFeed:
         for name in ("bid", "ask"):
             if data.get(name) is not None:
                 _decimal(data[name], name)
-        if data.get("bid") is not None and data.get("ask") is not None:
-            if _decimal(data["bid"], "bid") > _decimal(data["ask"], "ask"):
-                raise ValueError("bid exceeds ask")
+        if (
+            data.get("bid") is not None
+            and data.get("ask") is not None
+            and _decimal(data["bid"], "bid") > _decimal(data["ask"], "ask")
+        ):
+            raise ValueError("bid exceeds ask")
         return MarketSnapshot(
             symbol=self.PRODUCT,
             price=price,
