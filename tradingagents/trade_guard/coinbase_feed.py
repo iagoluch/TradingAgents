@@ -146,7 +146,7 @@ class CoinbaseBTCUSDFeed:
             end_time = boundary
         else:
             end_time = _aware(end)
-            if end_time > boundary or int(end_time.timestamp()) % seconds:
+            if end_time > boundary or int(end_time.timestamp()) % seconds or end_time.microsecond:
                 raise ValueError("candle end must be aligned and not in the future")
         start_time = end_time - timedelta(seconds=count * seconds)
         raw = self._request(
