@@ -36,9 +36,9 @@ def intent(action="SPOT_BUY", key="k1", **fields):
 
 
 def engine(tmp_path, **kw):
+    params = {"starting_quote": "10000", **kw}
     return PaperTradingEngine(
-        tmp_path / "trades.sqlite", symbol="BTC-USD",
-        starting_quote="10000", **kw,
+        tmp_path / "trades.sqlite", symbol="BTC-USD", **params,
     )
 
 
@@ -52,7 +52,7 @@ def test_buy_persists_cash_position_fee_and_unrealized_pnl(tmp_path):
     assert book["base_quantity"] == Decimal("1")
     assert book["fees_quote"] == Decimal("0.100")
     assert book["unrealized_pnl_quote"] == Decimal("4.900")
-    reopened = engine(tmp_path)
+    reopened = engine(tmp_path, fee_bps="10", slippage_bps="0")
     assert reopened.status("105")["cash_quote"] == book["cash_quote"]
 
 
