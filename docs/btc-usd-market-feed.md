@@ -56,3 +56,42 @@ Offline tests:
 
     python -m pytest tests/test_coinbase_feed.py -q
     ruff check .
+
+
+## Troubleshooting: stale Coinbase BTC-USD ticker
+
+If the 1h candles work but the monitor reports
+\`SKIPPED_INVALID_OR_STALE_DATA\`, the exchange's timestamped last trade
+is older than the 90-second maximum or your Windows UTC clock is incorrect.
+The price is intentionally **not** treated as live.
+
+The feed now tries a **second public Coinbase BTC-USD endpoint**:
+\`/products/BTC-USD/trades?limit=5\`, but only if the ticker itself is stale.
+It chooses the trade with the newest exchange timestamp and applies the
+**same 90-second limit**. This fallback never invents a current timestamp.
+A future ticker or corrupt price does not trigger a fallback.
+
+The JSON error includes:
+- \`venue=...\`: the actual Coinbase trade timestamp in UTC;
+- \`Windows_UTC=...\`: the timestamp from the PC, in UTC;
+- \`age=...s\`: how old that trade is compared with your PC;
+- \`maximum=90s\`: allowed maximum.
+
+Run this command in Windows CMD to compare clocks without changing any data:
+
+    .venv\Scripts\python.exe -c "import datetime,requests; d=requests.get('https://api.exchange.coinbase.com/products/BTC-USD/ticker',timeout=10).json(); print('Windows UTC:',datetime.datetime.now(datetime.timezone.utc).isoformat()); print('Coinbase UTC:',d.get('time')); print('BTC/USD:',d.get('price'))"
+
+If the Windows clock is wrong, use Windows Settings > Time & Language > Date
+& time > Sync now. Do not turn off timestamp verification to work around it.
+
+Unlike the original CLI, a multi-tick poller now logs a blocked tick and
+continues to its next scheduled polling attempt. No paper order is evaluated
+on a blocked tick. A \`--ticks 1\` run exits with code 1 if no valid quote is
+received; longer polling exits nonzero only if **every** tick was invalid.
+
+After updating from GitHub, use:
+
+    .venv\Scripts\python.exe -m tradingagents.trade_guard.market_cli --ticks 1
+    .venv\Scripts\python.exe -m tradingagents.trade_guard.market_cli --ticks 30 --interval 60
+
+The monitor still cannot synthesize agent trades or submit orders to a broker.
