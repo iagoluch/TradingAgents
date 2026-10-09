@@ -59,7 +59,7 @@ class PaperTradingEngine:
                     realized TEXT NOT NULL, fees TEXT NOT NULL,
                     stop TEXT, target TEXT, protection_id TEXT,
                     high_water TEXT NOT NULL, worst_drawdown TEXT NOT NULL,
-                    last_mark_price TEXT
+                    last_mark_price TEXT, fee_rate TEXT NOT NULL, slip_rate TEXT NOT NULL
                 )"""
             )
             conn.execute(
@@ -77,13 +77,19 @@ class PaperTradingEngine:
             conn.execute(
                 """INSERT OR IGNORE INTO account
                    (id, symbol, cash, base, cost, realized, fees, stop, target,
-                    protection_id, high_water, worst_drawdown, last_mark_price)
-                   VALUES (1, ?, ?, '0', '0', '0', '0', NULL, NULL, NULL, ?, '0', NULL)""",
-                (symbol, str(initial), str(initial)),
+                    protection_id, high_water, worst_drawdown, last_mark_price,
+                    fee_rate, slip_rate)
+                   VALUES (1, ?, ?, '0', '0', '0', '0', NULL, NULL, NULL, ?, '0', NULL, ?, ?)""",
+                (symbol, str(initial), str(initial), str(self.fee_rate), str(self.slippage_rate)),
             )
-            current = conn.execute("SELECT symbol FROM account WHERE id=1").fetchone()
+            current = conn.execute(
+                "SELECT symbol, fee_rate, slip_rate FROM account WHERE id=1"
+            ).fetchone()
             if current["symbol"] != symbol:
                 raise ValueError("database already belongs to a different symbol")
+            if (_dec(current["fee_rate"]) != self.fee_rate
+                    or _dec(current["slip_rate"]) != self.slippage_rate):
+                raise ValueError("paper ledger fees/slippage must match the existing book")
 
     def _connect(self):
         conn = sqlite3.connect(self.path, timeout=15)
@@ -366,10 +372,12 @@ class PaperTradingEngine:
                         )
                     changes.append(order["id"])
             self._mark(conn, quote.price)
-            for row_id in changes:
-                row = conn.execute("SELECT * FROM paper_orders WHERE id=?", (row_id,)).fetchone()
-                changes[changes.index(row_id)] = self._row_order(row)
-        return changes
+            return [
+                self._row_order(
+                    conn.execute("SELECT * FROM paper_orders WHERE id=?", (row_id,)).fetchone()
+                )
+                for row_id in changes
+            ]
 
     def cancel(self, key: str) -> dict:
         """Cancel an unfilled simulated order, releasing its reservation."""
