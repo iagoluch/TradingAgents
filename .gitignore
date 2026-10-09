@@ -221,3 +221,6 @@ __marimo__/
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
 reports/
+
+# Local simulated BTC/USD ledger and quote audit (never commit trading state)
+.paper_trading/
