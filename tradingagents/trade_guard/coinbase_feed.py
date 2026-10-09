@@ -18,6 +18,10 @@ from .risk import MarketSnapshot
 _GRANULARITIES = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}
 
 
+class StaleCoinbasePrice(ValueError):
+    """Timestamped last trade is older than the configured maximum age."""
+
+
 def _decimal(value, name: str, *, zero_allowed: bool = False) -> Decimal:
     if isinstance(value, bool) or value is None:
         raise ValueError(f"{name} is missing or invalid")
@@ -89,24 +93,48 @@ class CoinbaseBTCUSDFeed:
         response.raise_for_status()
         return response.json()
 
-    def snapshot(self, *, now: datetime | None = None) -> MarketSnapshot:
-        """Return a fresh BTC-USD last trade, timestamped by the venue."""
-        clock = _aware(now or datetime.now(UTC))
-        data = self._request("ticker")
-        if not isinstance(data, dict):
-            raise ValueError("ticker payload must be an object")
-        price = _decimal(data.get("price"), "last trade price")
+    @staticmethod
+    def _trade_time(data: dict) -> datetime:
         stamp = data.get("time")
         if not isinstance(stamp, str):
-            raise ValueError("ticker has no exchange timestamp")
+            raise ValueError("Coinbase trade has no exchange timestamp")
         try:
-            exchange_time = _aware(datetime.fromisoformat(stamp.replace("Z", "+00:00")))
+            return _aware(datetime.fromisoformat(stamp.replace("Z", "+00:00")))
         except ValueError as exc:
-            raise ValueError("invalid exchange timestamp") from exc
+            raise ValueError("invalid Coinbase exchange timestamp") from exc
 
-        age = clock - exchange_time
-        if age > timedelta(seconds=self.max_age_seconds) or age < -timedelta(seconds=5):
-            raise ValueError("stale or future Coinbase BTC-USD ticker")
+    def _snapshot_from_trade(self, trade: dict, clock: datetime, source: str) -> MarketSnapshot:
+        if not isinstance(trade, dict):
+            raise ValueError("Coinbase trade payload must be an object")
+        price = _decimal(trade.get("price"), "last trade price")
+        observed_at = self._trade_time(trade)
+        seconds_old = (clock - observed_at).total_seconds()
+        if seconds_old < -5:
+            raise ValueError(
+                f"future Coinbase BTC-USD trade: venue={observed_at.isoformat()}, "
+                f"Windows_UTC={clock.isoformat()}, difference={seconds_old:.1f}s. "
+                "Check Windows date/time synchronization."
+            )
+        if seconds_old > self.max_age_seconds:
+            raise StaleCoinbasePrice(
+                f"stale Coinbase BTC-USD trade: venue={observed_at.isoformat()}, "
+                f"Windows_UTC={clock.isoformat()}, age={seconds_old:.1f}s, "
+                f"maximum={self.max_age_seconds}s. Verify Windows UTC clock and data freshness."
+            )
+        return MarketSnapshot(
+            symbol=self.PRODUCT, price=price, observed_at=observed_at, source=source
+        )
+
+    def snapshot(self, *, now: datetime | None = None) -> MarketSnapshot:
+        """Read a fresh ticker, falling back to *timestamped* Coinbase trades.
+
+        A fallback is attempted only for a stale ticker, never for a future
+        timestamp or malformed quote. Neither path fabricates a timestamp.
+        """
+        data = self._request("ticker")
+        clock = _aware(now if now is not None else datetime.now(UTC))
+        if not isinstance(data, dict):
+            raise ValueError("ticker payload must be an object")
         for name in ("bid", "ask"):
             if data.get(name) is not None:
                 _decimal(data[name], name)
@@ -116,12 +144,25 @@ class CoinbaseBTCUSDFeed:
             and _decimal(data["bid"], "bid") > _decimal(data["ask"], "ask")
         ):
             raise ValueError("bid exceeds ask")
-        return MarketSnapshot(
-            symbol=self.PRODUCT,
-            price=price,
-            observed_at=exchange_time,
-            source=self.SOURCE,
-        )
+        try:
+            return self._snapshot_from_trade(data, clock, self.SOURCE)
+        except StaleCoinbasePrice as stale_ticker:
+            # Same exchange and BTC-USD pair. Candles/book quotes do not provide
+            # an equivalent timestamped last trade, so they are not substituted.
+            try:
+                trades = self._request("trades", params={"limit": 5})
+                if not isinstance(trades, list) or not trades:
+                    raise ValueError("no Coinbase BTC-USD trades returned")
+                if not all(isinstance(t, dict) for t in trades):
+                    raise ValueError("invalid Coinbase trade history payload")
+                latest = max(trades, key=self._trade_time)
+                return self._snapshot_from_trade(
+                    latest, clock, f"{self.SOURCE}/trades"
+                )
+            except (ValueError, requests.RequestException) as exc:
+                raise ValueError(
+                    f"{stale_ticker} Latest trades fallback also unavailable or invalid: {exc}"
+                ) from exc
 
     def candles(
         self,
