@@ -16,6 +16,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
+
 from .coinbase_feed import CoinbaseBTCUSDFeed
 from .paper import PaperTradingEngine
 
@@ -81,15 +83,31 @@ def main(argv: list[str] | None = None) -> int:
     args.db.parent.mkdir(parents=True, exist_ok=True)
     engine = PaperTradingEngine(args.db, symbol="BTC-USD")
     log = args.db.with_suffix(".ticks.jsonl")
+    successful_ticks = 0
     for n in range(args.ticks):
         if n:
             time.sleep(args.interval)
         current = datetime.now(UTC)
-        report = poll_once(feed, engine, now=current)
-        print(json.dumps(report, ensure_ascii=False))
+        try:
+            report = poll_once(feed, engine, now=current)
+        except (ValueError, requests.RequestException) as exc:
+            # Do not make up a fresh quote or advance the paper ledger.
+            # A 30-tick monitor keeps polling after a bad tick.
+            report = {
+                "symbol": "BTC-USD",
+                "status": "SKIPPED_INVALID_OR_STALE_DATA",
+                "checked_at": current.isoformat(),
+                "error": str(exc),
+                "events": [],
+            }
+        else:
+            successful_ticks += 1
+            report["status"] = "OK"
+        line = json.dumps(report, ensure_ascii=False)
+        print(line, flush=True)
         with log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(report, ensure_ascii=False) + "\n")
-    return 0
+            f.write(line + "\n")
+    return 0 if successful_ticks else 1
 
 
 if __name__ == "__main__":
