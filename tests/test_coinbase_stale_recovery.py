@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -54,7 +55,7 @@ def test_stale_ticker_recovers_using_fresh_timestamped_trade_same_pair():
     )
     snap = CoinbaseBTCUSDFeed(session=session).snapshot(now=NOW)
     assert snap.symbol == "BTC-USD"
-    assert snap.price == 82401.3
+    assert snap.price == Decimal("82401.3")
     assert snap.observed_at == fresh
     assert snap.source == "coinbase-exchange/BTC-USD/trades"
     assert session.calls[0][0].endswith("/BTC-USD/ticker")
