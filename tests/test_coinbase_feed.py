@@ -28,7 +28,8 @@ class FakeSession:
 
 def ticker_data(price="84000", time=NOW, **updates):
     value = {
-        "price": price, "time": time.isoformat().replace("+00:00", "Z"),
+        "price": price,
+        "time": time.isoformat().replace("+00:00", "Z") if isinstance(time, datetime) else time,
         "bid": "83999", "ask": "84001",
     }
     value.update(updates)
