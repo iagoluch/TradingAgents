@@ -17,8 +17,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from .risk import MarketSnapshot, PortfolioSnapshot, RiskLimits, TradeIntent
 from .review import validate_paper_decision
+from .risk import MarketSnapshot, PortfolioSnapshot, RiskLimits, TradeIntent
 
 ZERO = Decimal("0")
 
