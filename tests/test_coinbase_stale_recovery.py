@@ -7,8 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tradingagents.trade_guard import MarketSnapshot
-from tradingagents.trade_guard import market_cli
+from tradingagents.trade_guard import MarketSnapshot, market_cli
 from tradingagents.trade_guard.coinbase_feed import CoinbaseBTCUSDFeed
 
 NOW = datetime(2026, 10, 9, 20, 15, tzinfo=UTC)
